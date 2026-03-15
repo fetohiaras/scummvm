@@ -52,6 +52,7 @@ public:
 	void loadFilmLoopDataD4(Common::SeekableReadStreamEndian &stream);
 	void loadFilmLoopDataD5(Common::SeekableReadStreamEndian &stream);
 	void loadFilmLoopDataD6(Common::SeekableReadStreamEndian &stream);
+	bool loadFilmLoopStaticFallbackD7Plus();
 
 	Common::String formatInfo() override;
 

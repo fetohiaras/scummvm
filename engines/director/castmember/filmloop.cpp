@@ -39,6 +39,85 @@
 
 namespace Director {
 
+static bool isFilmLoopVisualFallbackType(CastMember *member) {
+	if (!member)
+		return false;
+
+	switch (member->_type) {
+	case kCastBitmap:
+	case kCastText:
+	case kCastButton:
+	case kCastShape:
+	case kCastDigitalVideo:
+	case kCastPicture:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static CastMember *findFilmLoopVisualFallback(Cast *cast, uint16 castId, uint16 &fallbackId) {
+	const int kSearchRadius = 4;
+
+	for (int radius = 1; radius <= kSearchRadius; radius++) {
+		for (int direction = -1; direction <= 1; direction += 2) {
+			int candidateId = castId + radius * direction;
+			if (candidateId < 1)
+				continue;
+
+			CastMember *candidate = cast->getCastMember(candidateId, true);
+			if (!isFilmLoopVisualFallbackType(candidate))
+				continue;
+
+			fallbackId = candidateId;
+			return candidate;
+		}
+	}
+
+	return nullptr;
+}
+
+bool FilmLoopCastMember::loadFilmLoopStaticFallbackD7Plus() {
+	uint16 fallbackId = 0;
+	CastMember *fallbackMember = findFilmLoopVisualFallback(_cast, _castId, fallbackId);
+	if (!fallbackMember)
+		return false;
+
+	Common::Rect bbox = _initialRect;
+	if (bbox.isEmpty()) {
+		bbox = fallbackMember->getInitialRect();
+		if (bbox.isEmpty()) {
+			bbox = fallbackMember->getBbox();
+			if (bbox.isEmpty())
+				bbox = Common::Rect(1, 1);
+			bbox.moveTo(0, 0);
+		}
+		_initialRect = bbox;
+	}
+
+	FilmLoopFrame frame;
+	Sprite sprite(nullptr);
+	sprite._movie = g_director->getCurrentMovie();
+	sprite._spriteType = kCastMemberSprite;
+	sprite._castId = CastMemberID(fallbackId, _cast->_castLibID);
+	sprite.setCast(sprite._castId);
+	sprite._stretch = true;
+	sprite._width = MAX<int16>(bbox.width(), 1);
+	sprite._height = MAX<int16>(bbox.height(), 1);
+
+	Common::Point regOffset = fallbackMember->getRegistrationOffset(sprite._width, sprite._height);
+	sprite._startPoint = Common::Point(bbox.left + regOffset.x, bbox.top + regOffset.y);
+
+	frame.sprites.setVal(2, sprite);
+	_frames.push_back(frame);
+
+	debugC(2, kDebugLoading,
+		"FilmLoopCastMember::loadFilmLoopStaticFallbackD7Plus(): castId %d using sibling castId %d (%s) as static fallback",
+		_castId, fallbackId, castType2str(fallbackMember->_type));
+
+	return true;
+}
+
 FilmLoopCastMember::FilmLoopCastMember(Cast *cast, uint16 castId, Common::SeekableReadStreamEndian &stream, uint16 version)
 		: CastMember(cast, castId, stream) {
 	_type = kCastFilmLoop;
@@ -58,7 +137,7 @@ FilmLoopCastMember::FilmLoopCastMember(Cast *cast, uint16 castId, Common::Seekab
 		_enableSound = flags & 8 ? 1 : 0;
 		_crop = flags & 2 ? 0 : 1;
 		_center = flags & 1 ? 1 : 0;
-	} else if (cast->_version >= kFileVer500 && cast->_version < kFileVer600) {
+	} else if (cast->_version >= kFileVer500) {
 		_initialRect = Movie::readRect(stream);
 		uint32 flags = stream.readUint32BE();
 		uint16 unk1 = stream.readUint16BE();
@@ -204,11 +283,7 @@ void FilmLoopCastMember::loadFilmLoopDataD2(Common::SeekableReadStreamEndian &st
 
 	uint32 size = stream.readUint32BE();
 	if (debugChannelSet(5, kDebugLoading)) {
-		debugC(5, kDebugLoading, "loadFilmLoopDataD2: SCVW body:");
-		uint32 pos = stream.pos();
-		stream.seek(0);
-		stream.hexdump(size);
-		stream.seek(pos);
+		debugC(5, kDebugLoading, "loadFilmLoopDataD2: SCVW body size: %d", size);
 	}
 	uint16 channelSize = kSprChannelSizeD2;
 	FilmLoopFrame newFrame;
@@ -306,10 +381,6 @@ void FilmLoopCastMember::loadFilmLoopDataD4(Common::SeekableReadStreamEndian &st
 	uint32 size = stream.readUint32BE();
 	if (debugChannelSet(8, kDebugLoading)) {
 		debugC(8, kDebugLoading, "loadFilmLoopDataD4: SCVW body of size: %d", size);
-		uint32 pos = stream.pos();
-		stream.seek(0);
-		stream.hexdump(size);
-		stream.seek(pos);
 	}
 	uint32 framesOffset = stream.readUint32BE();
 	if (debugChannelSet(8, kDebugLoading)) {
@@ -349,7 +420,7 @@ void FilmLoopCastMember::loadFilmLoopDataD4(Common::SeekableReadStreamEndian &st
 			}
 
 			uint16 segSize = msgWidth;
-			uint16 nextStart = (channel + 1) * kSprChannelSizeD4;
+			uint16 nextStart = (channel + 1) * kSprChannelSizeD6;
 
 			while (segSize > 0) {
 				Sprite sprite(nullptr);
@@ -425,11 +496,7 @@ void FilmLoopCastMember::loadFilmLoopDataD5(Common::SeekableReadStreamEndian &st
 
 	uint32 size = stream.readUint32BE();
 	if (debugChannelSet(5, kDebugLoading)) {
-		debugC(5, kDebugLoading, "loadFilmLoopDataD5: SCVW body:");
-		uint32 pos = stream.pos();
-		stream.seek(0);
-		stream.hexdump(size);
-		stream.seek(pos);
+		debugC(5, kDebugLoading, "loadFilmLoopDataD5: SCVW body size: %d", size);
 	}
 	uint32 framesOffset = stream.readUint32BE();
 	if (debugChannelSet(5, kDebugLoading)) {
@@ -549,11 +616,7 @@ void FilmLoopCastMember::loadFilmLoopDataD6(Common::SeekableReadStreamEndian &st
 
 	uint32 size = stream.readUint32BE();
 	if (debugChannelSet(5, kDebugLoading)) {
-		debugC(5, kDebugLoading, "loadFilmLoopDataD6: SCVW body:");
-		uint32 pos = stream.pos();
-		stream.seek(0);
-		stream.hexdump(size);
-		stream.seek(pos);
+		debugC(5, kDebugLoading, "loadFilmLoopDataD6: SCVW body size: %d", size);
 	}
 	uint32 framesOffset = stream.readUint32BE();
 	if (debugChannelSet(5, kDebugLoading)) {
@@ -724,8 +787,13 @@ void FilmLoopCastMember::load() {
 			warning("FilmLoopCastMember::load(): No SCVW resource found in %d children", _children.size());
 		}
 	} else {
-		warning("STUB: FilmLoopCastMember::load(): Film loops not yet supported for version v%d (%d)", humanVersion(_cast->_version), _cast->_version);
+		if (!loadFilmLoopStaticFallbackD7Plus()) {
+			warning("STUB: FilmLoopCastMember::load(): Film loops not yet supported for version v%d (%d)", humanVersion(_cast->_version), _cast->_version);
+		}
 	}
+
+	debugC(3, kDebugLoading, "FilmLoopCastMember::load(): castId %d loaded %d frames, rect %dx%d@%d,%d",
+		_castId, _frames.size(), _initialRect.width(), _initialRect.height(), _initialRect.left, _initialRect.top);
 
 	_loaded = true;
 }
@@ -748,7 +816,7 @@ uint32 FilmLoopCastMember::getCastDataSize() {
 	if (_cast->_version >= kFileVer400 && _cast->_version < kFileVer500) {
 		// It has been observed that the FilmCastMember has _flags as 0x00
 		return 8 + 4 + 2 + 2;
-	} else if (_cast->_version >= kFileVer500 && _cast->_version < kFileVer600) {
+	} else if (_cast->_version >= kFileVer500) {
 		return 8 + 4 + 2;
 	}
 
@@ -765,7 +833,7 @@ void FilmLoopCastMember::writeCastData(Common::SeekableWriteStream *writeStream)
 		flags |= (_enableSound) ? 8 : 0;
 		flags |= (_crop) ? 0 : 2;
 		flags |= (_center) ? 1 : 0;
-	} else if (_cast->_version >= kFileVer500 && _cast->_version < kFileVer600) {
+	} else if (_cast->_version >= kFileVer500) {
 		flags |= (_looping) ? 0 : 32;
 		flags |= (_enableSound) ? 8 : 0;
 		flags |= (_crop) ? 0 : 2;
