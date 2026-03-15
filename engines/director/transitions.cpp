@@ -160,8 +160,8 @@ void Window::playTransition(uint frame, RenderMode mode, uint16 transDuration, u
 	TransParams t;
 
 	if (transType < 1 || transType > ARRAYSIZE(transProps) - 1) {
-		warning("playTransition(): transType is not in [1..%d]: %d", ARRAYSIZE(transProps) - 1, transType);
-		return;
+		warning("playTransition(): transType is not in [1..%d]: %d, falling back to dissolve", ARRAYSIZE(transProps) - 1, transType);
+		transType = kTransDissolvePixelsFast;
 	}
 
 	t.type = transType;
