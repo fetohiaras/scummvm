@@ -747,6 +747,10 @@ void FileIO::m_delete(int nargs) {
 // Non-standard extensions
 XOBJSTUBNR(FileIO::m_setOverrideDrive)
 
-XOBJSTUB(FileIO::m_getOSDirectory, "")
+void FileIO::m_getOSDirectory(int nargs) {
+	// Return a stable Windows-style directory name; file reads/writes are still redirected
+	// through ScummVM's path resolver and savefile manager.
+	g_lingo->push(Datum("C:\\WINDOWS"));
+}
 
 } // End of namespace Director

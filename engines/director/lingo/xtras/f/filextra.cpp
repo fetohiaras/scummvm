@@ -19,12 +19,16 @@
  *
  */
 
+#include "common/file.h"
+#include "common/savefile.h"
 #include "common/system.h"
 
 #include "director/director.h"
 #include "director/lingo/lingo.h"
 #include "director/lingo/lingo-object.h"
 #include "director/lingo/lingo-utils.h"
+#include "director/util.h"
+#include "director/lingo/xlibs/m/msfile.h"
 #include "director/lingo/xtras/f/filextra.h"
 
 /**************************************************
@@ -148,10 +152,35 @@ XOBJSTUB(FileXtra::m_DriveFreeSpace, 0)
 XOBJSTUB(FileXtra::m_DriveIsCDROM, 0)
 XOBJSTUB(FileXtra::m_FileOpenDialog, 0)
 XOBJSTUB(FileXtra::m_FileSaveAsDialog, 0)
-XOBJSTUB(FileXtra::m_FileExists, 0)
+void FileXtra::m_FileExists(int nargs) {
+	Common::SaveFileManager *saves = g_system->getSavefileManager();
+	Common::String path = g_lingo->pop().asString();
+	Common::String origPath = path;
+	Common::String saveFileName = lastPathComponent(path, g_director->_dirSeparator);
+	Common::String prefix = savePrefix();
+
+	if (!saveFileName.hasSuffixIgnoreCase(".txt"))
+		saveFileName += ".txt";
+	if (!saveFileName.hasPrefixIgnoreCase(prefix))
+		saveFileName = prefix + saveFileName;
+
+	if (saves->exists(saveFileName)) {
+		g_lingo->push(Datum(1));
+		return;
+	}
+
+	Common::File file;
+	Common::Path location = findPath(origPath);
+	g_lingo->push(Datum(!location.empty() && file.open(location) ? 1 : 0));
+}
 XOBJSTUB(FileXtra::m_RenameFile, 0)
 XOBJSTUB(FileXtra::m_DeleteFile, 0)
-XOBJSTUB(FileXtra::m_CopyFile, 0)
+void FileXtra::m_CopyFile(int nargs) {
+	Common::String destPath = g_lingo->pop().asString();
+	Common::String srcPath = g_lingo->pop().asString();
+	bool success = MSFile::copyGameFile(srcPath, destPath);
+	g_lingo->push(Datum(success ? 1 : 0));
+}
 XOBJSTUB(FileXtra::m_GetFileModDate, 0)
 XOBJSTUB(FileXtra::m_DirectoryExists, 0)
 XOBJSTUB(FileXtra::m_CreateDirectory, 0)

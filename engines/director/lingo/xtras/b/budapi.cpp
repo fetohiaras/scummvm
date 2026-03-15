@@ -19,6 +19,7 @@
  *
  */
 
+#include "audio/mixer.h"
 #include "common/system.h"
 
 #include "director/director.h"
@@ -183,6 +184,37 @@ new object me
  */
 
 namespace Director {
+
+namespace {
+
+int g_budapiMasterVolume = 100;
+int g_budapiCDVolume = 100;
+
+int getScreenWidth() {
+	if (g_director && g_director->getMacWindowManager())
+		return g_director->getMacWindowManager()->getWidth();
+	if (g_system)
+		return g_system->getWidth();
+	return 640;
+}
+
+int getScreenHeight() {
+	if (g_director && g_director->getMacWindowManager())
+		return g_director->getMacWindowManager()->getHeight();
+	if (g_system)
+		return g_system->getHeight();
+	return 480;
+}
+
+int getScreenDepth() {
+	if (g_director && g_director->getMacWindowManager())
+		return g_director->getMacWindowManager()->_pixelformat.bytesPerPixel * 8;
+	if (g_director)
+		return g_director->_colorDepth;
+	return 16;
+}
+
+} // namespace
 
 const char *BudAPIXtra::xlibName = "BudAPI";
 const XlibFileDesc BudAPIXtra::fileNames[] = {
@@ -390,7 +422,22 @@ XOBJSTUB(BudAPIXtra::m_baFontList, 0)
 XOBJSTUB(BudAPIXtra::m_baFontStyleList, 0)
 XOBJSTUB(BudAPIXtra::m_baCommandArgs, 0)
 XOBJSTUB(BudAPIXtra::m_baPrevious, 0)
-XOBJSTUB(BudAPIXtra::m_baScreenInfo, 0)
+void BudAPIXtra::m_baScreenInfo(int nargs) {
+	Common::String infoType = g_lingo->pop().asString();
+	int result = 0;
+
+	if (infoType.equalsIgnoreCase("Width")) {
+		result = getScreenWidth();
+	} else if (infoType.equalsIgnoreCase("Height")) {
+		result = getScreenHeight();
+	} else if (infoType.equalsIgnoreCase("Depth") || infoType.equalsIgnoreCase("ColorDepth")) {
+		result = getScreenDepth();
+	} else {
+		debugC(2, kDebugXObj, "BudAPIXtra::m_baScreenInfo: unsupported infoType '%s'", infoType.c_str());
+	}
+
+	g_lingo->push(Datum(result));
+}
 XOBJSTUB(BudAPIXtra::m_baDisableDiskErrors, 0)
 XOBJSTUB(BudAPIXtra::m_baDisableKeys, 0)
 XOBJSTUB(BudAPIXtra::m_baDisableMouse, 0)
@@ -398,9 +445,22 @@ XOBJSTUB(BudAPIXtra::m_baDisableSwitching, 0)
 XOBJSTUB(BudAPIXtra::m_baDisableScreenSaver, 0)
 XOBJSTUB(BudAPIXtra::m_baScreenSaverTime, 0)
 XOBJSTUB(BudAPIXtra::m_baSetScreenSaver, 0)
-XOBJSTUB(BudAPIXtra::m_baSetWallpaper, 0)
+void BudAPIXtra::m_baSetWallpaper(int nargs) {
+	int tile = g_lingo->pop().asInt();
+	Common::String filename = g_lingo->pop().asString();
+	debugC(2, kDebugXObj, "BudAPIXtra::m_baSetWallpaper: ignoring wallpaper request '%s' tile=%d", filename.c_str(), tile);
+	g_lingo->push(Datum(1));
+}
 XOBJSTUB(BudAPIXtra::m_baSetPattern, 0)
-XOBJSTUB(BudAPIXtra::m_baSetDisplay, 0)
+void BudAPIXtra::m_baSetDisplay(int nargs) {
+	int force = g_lingo->pop().asInt();
+	Common::String mode = g_lingo->pop().asString();
+	int depth = g_lingo->pop().asInt();
+	int height = g_lingo->pop().asInt();
+	int width = g_lingo->pop().asInt();
+	debugC(2, kDebugXObj, "BudAPIXtra::m_baSetDisplay: ignoring display change request %dx%dx%d mode='%s' force=%d", width, height, depth, mode.c_str(), force);
+	g_lingo->push(Datum(1));
+}
 XOBJSTUB(BudAPIXtra::m_baExitWindows, 0)
 XOBJSTUB(BudAPIXtra::m_baRunProgram, 0)
 XOBJSTUB(BudAPIXtra::m_baWinHelp, 0)
@@ -414,8 +474,44 @@ XOBJSTUB(BudAPIXtra::m_baDecryptText, 0)
 XOBJSTUB(BudAPIXtra::m_baPlaceCursor, 0)
 XOBJSTUB(BudAPIXtra::m_baRestrictCursor, 0)
 XOBJSTUB(BudAPIXtra::m_baFreeCursor, 0)
-XOBJSTUB(BudAPIXtra::m_baSetVolume, 0)
-XOBJSTUB(BudAPIXtra::m_baGetVolume, 0)
+void BudAPIXtra::m_baSetVolume(int nargs) {
+	int volume = g_lingo->pop().asInt();
+	Common::String type = g_lingo->pop().asString();
+
+	if (volume < 0)
+		volume = 0;
+	else if (volume > 100)
+		volume = 100;
+
+	if (type.equalsIgnoreCase("master") || type.equalsIgnoreCase("wave")) {
+		g_budapiMasterVolume = volume;
+		if (g_director && g_director->_mixer)
+			g_director->_mixer->setVolumeForSoundType(Audio::Mixer::kSFXSoundType, Audio::Mixer::kMaxMixerVolume * volume / 100);
+	} else if (type.equalsIgnoreCase("cd")) {
+		g_budapiCDVolume = volume;
+	} else {
+		debugC(2, kDebugXObj, "BudAPIXtra::m_baSetVolume: unsupported type '%s' value=%d", type.c_str(), volume);
+	}
+
+	g_lingo->push(Datum(1));
+}
+
+void BudAPIXtra::m_baGetVolume(int nargs) {
+	Common::String type = g_lingo->pop().asString();
+	int result = 0;
+
+	if (type.equalsIgnoreCase("master") || type.equalsIgnoreCase("wave")) {
+		result = g_budapiMasterVolume;
+		if (g_director && g_director->_mixer)
+			result = g_director->_mixer->getVolumeForSoundType(Audio::Mixer::kSFXSoundType) * 100 / Audio::Mixer::kMaxMixerVolume;
+	} else if (type.equalsIgnoreCase("cd")) {
+		result = g_budapiCDVolume;
+	} else {
+		debugC(2, kDebugXObj, "BudAPIXtra::m_baGetVolume: unsupported type '%s'", type.c_str());
+	}
+
+	g_lingo->push(Datum(result));
+}
 XOBJSTUB(BudAPIXtra::m_baInstallFont, 0)
 XOBJSTUB(BudAPIXtra::m_baKeyIsDown, 0)
 XOBJSTUB(BudAPIXtra::m_baKeyBeenPressed, 0)
@@ -495,7 +591,12 @@ XOBJSTUB(BudAPIXtra::m_baRemoveSysItems, 0)
 XOBJSTUB(BudAPIXtra::m_baWinHandle, 0)
 XOBJSTUB(BudAPIXtra::m_baStageHandle, 0)
 XOBJSTUB(BudAPIXtra::m_baAbout, 0)
-XOBJSTUB(BudAPIXtra::m_baRegister, 0)
+void BudAPIXtra::m_baRegister(int nargs) {
+	int number = g_lingo->pop().asInt();
+	Common::String userName = g_lingo->pop().asString();
+	debugC(2, kDebugXObj, "BudAPIXtra::m_baRegister: accepting registration for '%s' (%d)", userName.c_str(), number);
+	g_lingo->push(Datum(1));
+}
 XOBJSTUB(BudAPIXtra::m_baSaveRegistration, 0)
 XOBJSTUB(BudAPIXtra::m_baGetRegistration, 0)
 XOBJSTUB(BudAPIXtra::m_baFunctions, 0)
