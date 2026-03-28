@@ -24,6 +24,10 @@
 
 #include "director/castmember/castmember.h"
 
+namespace Graphics {
+class MacWidget;
+}
+
 namespace Director {
 
 class XtraCastMember : public CastMember {
@@ -36,11 +40,25 @@ public:
 	bool hasField(int field) override;
 	Datum getField(int field) override;
 	void setField(int field, const Datum &value) override;
+	Graphics::MacWidget *createWidget(Common::Rect &bbox, Channel *channel, SpriteType spriteType) override;
 
 	Common::String formatInfo() override;
 
 	uint32 getCastDataSize() override;
 	void writeCastData(Common::SeekableWriteStream *writeStream) override;
+
+private:
+	enum PayloadKind {
+		kPayloadUnknown,
+		kPayloadText,
+		kPayloadData,
+		kPayloadFont
+	};
+
+	void loadPayloadSummary();
+
+	PayloadKind _payloadKind;
+	Common::String _payloadText;
 };
 
 } // End of namespace Director

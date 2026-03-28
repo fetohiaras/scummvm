@@ -280,7 +280,7 @@ bool Movie::processEvent(Common::Event &event) {
 				}
 			}
 
-			debugC(3, kDebugEvents, "Movie::processEvent(): Button Down @(%d, %d), movie '%s'", pos.x, pos.y, _macName.c_str());
+			debugC(3, kDebugEvents, "Movie::processEvent(): Button Down @(%d, %d), movie '%s', sprite=%d", pos.x, pos.y, _macName.c_str(), spriteId);
 			queueInputEvent(ev, 0, pos);
 
 			// D5 has special behavior here
@@ -297,7 +297,7 @@ bool Movie::processEvent(Common::Event &event) {
 		{
 			pos = event.mouse;
 
-			debugC(3, kDebugEvents, "Movie::processEvent(): Button Up @(%d, %d), movie '%s'", pos.x, pos.y, _macName.c_str());
+			debugC(3, kDebugEvents, "Movie::processEvent(): Button Up @(%d, %d), movie '%s', sprite=%d", pos.x, pos.y, _macName.c_str(), spriteId);
 
 			LEvent ev = kEventMouseUp;
 			// In D5 and up, right mouse clicks don't trigger the mouseUp handler.

@@ -110,6 +110,8 @@ bool FilmLoopCastMember::loadFilmLoopStaticFallbackD7Plus() {
 
 	frame.sprites.setVal(2, sprite);
 	_frames.push_back(frame);
+	_staticFallback = true;
+	_enableSound = false;
 
 	debugC(2, kDebugLoading,
 		"FilmLoopCastMember::loadFilmLoopStaticFallbackD7Plus(): castId %d using sibling castId %d (%s) as static fallback",
@@ -125,6 +127,7 @@ FilmLoopCastMember::FilmLoopCastMember(Cast *cast, uint16 castId, Common::Seekab
 	_enableSound = true;
 	_crop = false;
 	_center = false;
+	_staticFallback = false;
 	_index = -1;
 
 	// We are ignoring some of the bits in the flags
@@ -164,6 +167,7 @@ FilmLoopCastMember::FilmLoopCastMember(Cast *cast, uint16 castId, FilmLoopCastMe
 	_enableSound = source._enableSound;
 	_crop = source._crop;
 	_center = source._center;
+	_staticFallback = source._staticFallback;
 	_frames = source._frames;
 	_subchannels = source._subchannels;
 	_looping = source._looping;
@@ -187,6 +191,9 @@ Common::Array<Channel> *FilmLoopCastMember::getSubChannels(Common::Rect &bbox, u
 	Common::Rect widgetRect(bbox.width() ? bbox.width() : _initialRect.width(), bbox.height() ? bbox.height() : _initialRect.height());
 
 	_subchannels.clear();
+
+	if (_staticFallback && !_frames.empty() && frame >= _frames.size())
+		frame = 0;
 
 	if (frame >= _frames.size()) {
 		warning("FilmLoopCastMember::getSubChannels(): Film loop frame %d requested, only %d available", frame, _frames.size());
@@ -254,6 +261,9 @@ Common::Array<Channel> *FilmLoopCastMember::getSubChannels(Common::Rect &bbox, u
 }
 
 CastMemberID FilmLoopCastMember::getSubChannelSound1(uint frame) {
+	if (_staticFallback)
+		return CastMemberID();
+
 	if (frame >= _frames.size()) {
 		warning("FilmLoopCastMember::getSubChannelSound1(): Film loop frame %d requested, only %d available", frame, _frames.size());
 		return CastMemberID();
@@ -266,6 +276,9 @@ CastMemberID FilmLoopCastMember::getSubChannelSound1(uint frame) {
 }
 
 CastMemberID FilmLoopCastMember::getSubChannelSound2(uint frame) {
+	if (_staticFallback)
+		return CastMemberID();
+
 	if (frame >= _frames.size()) {
 		warning("FilmLoopCastMember::getSubChannelSound2(): Film loop frame %d requested, only %d available", frame, _frames.size());
 		return CastMemberID();

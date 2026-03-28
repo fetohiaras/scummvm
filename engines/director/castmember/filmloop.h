@@ -72,6 +72,7 @@ public:
 	bool _looping;
 	bool _crop;
 	bool _center;
+	bool _staticFallback;
 
 	Common::Array<FilmLoopFrame> _frames;
 	Common::Array<Channel> _subchannels;
