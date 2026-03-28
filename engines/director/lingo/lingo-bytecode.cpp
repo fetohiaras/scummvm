@@ -141,6 +141,10 @@ static const LingoV4Bytecode lingoV4[] = {
 	{ 0xa4, LC::c_stackpeek, 	"w" },
 	{ 0xa5, LC::c_stackdrop, 	"w" },
 	{ 0xa6, LC::cb_v4theentitynamepush, "wN" },
+	// Later Director versions add more wide-form opcodes beyond the D4-era table.
+	// ProjectorRays identifies 0xae as the wide form of pushint16 (confirmed in
+	// McDonalds A Ilha dos Ogo Pogos, D8.5 Windows).
+	{ 0xae, LC::c_intpush,		"W" },
 	{ 0, nullptr, nullptr }
 };
 
@@ -1028,7 +1032,7 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 	/* uint32 length2 = */ stream.readUint32();
 	uint16 codeStoreOffset = stream.readUint16();
 
-	/* uint16 scriptId = */ stream.readUint16() /* + 1 */;
+	uint16 storedScriptId = stream.readUint16() /* + 1 */;
 	// This field *should* match the script's index in Lctx, but this
 	// is unreliable. (e.g. script 261 in DATA/LEVEL1.DIR in betterd-win
 	// has this field incorrectly set to 263 instead of 261.)
@@ -1094,7 +1098,21 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 	// initialise the script
 	ScriptType scriptType = kCastScript;
 	Common::String castName;
-	CastMember *member = archive->cast->getCastMemberByScriptId(scriptId);
+	CastMember *member = nullptr;
+	if (storedScriptId)
+		member = archive->cast->getCastMemberByScriptId(storedScriptId);
+	if (!member)
+		member = archive->cast->getCastMemberByScriptId(scriptId);
+	if (!member && storedScriptId) {
+		CastMember *storedMember = archive->cast->getCastMember(storedScriptId);
+		if (storedMember && storedMember->_type == kCastLingoScript)
+			member = storedMember;
+	}
+	if (!member) {
+		CastMember *memberByCastId = archive->cast->getCastMember(lctxIndex);
+		if (memberByCastId && memberByCastId->_type == kCastLingoScript)
+			member = memberByCastId;
+	}
 	if (member) {
 		if (member->_type == kCastLingoScript)
 			scriptType = ((ScriptCastMember *)member)->_scriptType;
@@ -1107,6 +1125,10 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 		warning("Script %d has no associated cast member", scriptId);
 		scriptType = kMovieScript;
 	}
+
+	debugC(1, kDebugLoading,
+		"compileLingoV4(): lctxIndex=%u storedScriptId=%u resolvedMember=%d scriptType=%s castName='%s'",
+		lctxIndex, storedScriptId, _assemblyId, scriptType2str(scriptType), castName.c_str());
 
 	_assemblyArchive = archive;
 
@@ -1291,19 +1313,19 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 	}
 	free(constsStore);
 
-	// parse each function!
-	// these are stored as a code storage area, followed by a reference table of 42 byte entries.
-
-	// copy the storage area first.
+	// parse each function/handler.
+	// In later Director versions the offsets in these records are absolute
+	// within the Lscr resource, not relative to a dedicated code blob that
+	// ends at the handler table.
 	if ((uint32)stream.size() < functionsOffset) {
 		warning("Lscr functions store missing");
 		return nullptr;
 	}
 
-	uint32 codeStoreSize = functionsOffset - codeStoreOffset;
-	stream.seek(codeStoreOffset);
-	byte *codeStore = (byte *)malloc(codeStoreSize);
-	stream.read(codeStore, codeStoreSize);
+	uint32 scriptStoreSize = stream.size();
+	stream.seek(0);
+	byte *scriptStore = (byte *)malloc(scriptStoreSize);
+	stream.read(scriptStore, scriptStoreSize);
 
 	Common::DumpFile out;
 	bool skipdump = false;
@@ -1327,33 +1349,57 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 	// read each entry in the function table.
 	stream.seek(functionsOffset);
 	for (uint16 i = 0; i < functionsCount; i++) {
+		const uint32 functionHeaderOffset = stream.pos();
+		const uint32 functionHeaderSize = (version >= kFileVer850) ? 46 : 42;
 		if (debugChannelSet(5, kDebugLoading)) {
 			debugC(5, kDebugLoading, "Function %d header:", i);
-			stream.hexdump(0x2a);
+			stream.hexdump(functionHeaderSize);
+			stream.seek(functionHeaderOffset);
 		}
 
 		int16 nameIndex = stream.readUint16();
-		stream.readUint16();
+		uint16 vectorPos = stream.readUint16();
 		uint32 length = stream.readUint32();
 		uint32 startOffset = stream.readUint32();
 		uint16 argCount = stream.readUint16();
 		uint32 argOffset = stream.readUint32();
 		uint16 varCount = stream.readUint16();
 		uint32 varOffset = stream.readUint32();
-		stream.readUint16();
-		stream.readUint16();
-		stream.readUint16();
-		stream.readUint16();
-		stream.readUint16();
-		stream.readUint16();
-		stream.readUint16();
-		stream.readUint16();
-		stream.readUint16();
+		uint16 globalCount = 0;
+		uint32 globalOffset = 0;
+		uint32 unknown1 = 0;
+		uint16 unknown2 = 0;
+		uint16 lineCount = 0;
+		uint32 lineOffset = 0;
+		uint32 stackHeight = 0;
+
+		if (version >= kFileVer850) {
+			globalCount = stream.readUint16();
+			globalOffset = stream.readUint32();
+			unknown1 = stream.readUint32();
+			unknown2 = stream.readUint16();
+			lineCount = stream.readUint16();
+			lineOffset = stream.readUint32();
+			stackHeight = stream.readUint32();
+		} else {
+			stream.readUint16();
+			stream.readUint16();
+			stream.readUint16();
+			stream.readUint16();
+			stream.readUint16();
+			stream.readUint16();
+			stream.readUint16();
+			stream.readUint16();
+			stream.readUint16();
+		}
+
+		debugC(5, kDebugLoading, "Function %d meta: vector=%d length=%u start=%u args=%d vars=%d globals=%d lineCount=%d stackHeight=%u",
+			i, vectorPos, length, startOffset, argCount, varCount, globalCount, lineCount, stackHeight);
 
 		if (startOffset < codeStoreOffset) {
 			warning("Function %d start offset is out of bounds!", i);
 			continue;
-		} else if (startOffset + length >= codeStoreOffset + codeStoreSize) {
+		} else if (startOffset + length > scriptStoreSize) {
 			warning("Function %d end offset is out of bounds", i);
 			continue;
 		}
@@ -1363,13 +1409,13 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 		Common::HashMap<uint16, uint16> argMap;
 		if (argOffset < codeStoreOffset) {
 			warning("Function %d argument names start offset is out of bounds!", i);
-		} else if (argOffset + argCount*2 >= codeStoreOffset + codeStoreSize) {
+		} else if (argOffset + argCount * 2 > scriptStoreSize) {
 			warning("Function %d argument names end offset is out of bounds!", i);
 		} else {
 			debugC(5, kDebugLoading, "Function %d argument list:", i);
-			uint16 namePointer = argOffset - codeStoreOffset;
+			uint32 namePointer = argOffset;
 			for (int j = 0; j < argCount; j++) {
-				int16 index = READ_BE_INT16(&codeStore[namePointer]);
+				int16 index = READ_BE_INT16(&scriptStore[namePointer]);
 				namePointer += 2;
 				Common::String name;
 				if (0 <= index && index < (int16)archive->names.size()) {
@@ -1401,13 +1447,13 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 		Common::HashMap<uint16, uint16> varMap;
 		if (varOffset < codeStoreOffset) {
 			warning("Function %d variable names start offset is out of bounds!", i);
-		} else if (varOffset + varCount*2 >= codeStoreOffset + codeStoreSize) {
+		} else if (varOffset + varCount * 2 > scriptStoreSize) {
 			warning("Function %d variable names end offset is out of bounds!", i);
 		} else {
 			debugC(5, kDebugLoading, "Function %d variable list:", i);
-			uint16 namePointer = varOffset - codeStoreOffset;
+			uint32 namePointer = varOffset;
 			for (int j = 0; j < varCount; j++) {
-				int16 index = READ_BE_INT16(&codeStore[namePointer]);
+				int16 index = READ_BE_INT16(&scriptStore[namePointer]);
 				namePointer += 2;
 				Common::String name;
 				if (0 <= index && index < (int16)archive->names.size()) {
@@ -1422,21 +1468,34 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 			}
 		}
 
+		if (version >= kFileVer850 && globalCount) {
+			if (globalOffset < codeStoreOffset) {
+				warning("Function %d global names start offset is out of bounds!", i);
+			} else if (globalOffset + globalCount * 2 > scriptStoreSize) {
+				warning("Function %d global names end offset is out of bounds!", i);
+			}
+		}
+
 		_currentAssembly = new ScriptData;
 
 		if (debugChannelSet(5, kDebugLoading)) {
 			debugC(5, kDebugLoading, "Function %d code:", i);
-			Common::hexdump(codeStore, length, 16, startOffset);
+			Common::hexdump(&scriptStore[startOffset], length, 16, startOffset);
 		}
 
-		uint32 pointer = startOffset - codeStoreOffset;
+		uint32 pointer = startOffset;
 		Common::Array<uint32> offsetList;
 		Common::Array<uint32> jumpList;
 		Common::Array<uint32> byteOffsets;
 
 		// Size of an entry in the consts index.
+		// D8.5+ encodes constant references as direct 0-based indices rather than
+		// byte offsets, so constEntrySize is 1 (no division needed).
 		int constEntrySize = 0;
-		if (version >= kFileVer500) {
+		bool constDirectIndex = (version >= kFileVer850);
+		if (constDirectIndex) {
+			constEntrySize = 1;
+		} else if (version >= kFileVer500) {
 			// For D5 this is uint32 type + uint32 offset
 			constEntrySize = 8;
 		} else {
@@ -1444,8 +1503,8 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 			constEntrySize = 6;
 		}
 
-		while (pointer < startOffset + length - codeStoreOffset) {
-			uint8 opcode = codeStore[pointer];
+		while (pointer < startOffset + length) {
+			uint8 opcode = scriptStore[pointer];
 			pointer += 1;
 
 			if (opcode == 0x44 || opcode == 0x84) {
@@ -1455,15 +1514,15 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 				byteOffsets.push_back(_currentAssembly->size());
 				int arg = 0;
 				if (opcode == 0x84) {
-					arg = (uint16)READ_BE_UINT16(&codeStore[pointer]);
+					arg = (uint16)READ_BE_UINT16(&scriptStore[pointer]);
 					pointer += 2;
 				} else {
-					arg = (uint8)codeStore[pointer];
+					arg = (uint8)scriptStore[pointer];
 					pointer += 1;
 				}
-				// The argument is a byte offset to an entry in the consts index.
-				// As such, it should be an exact multiple of the entry size.
-				if (arg % constEntrySize) {
+				// In D5–D7 the argument is a byte offset into the consts index;
+				// in D8.5+ it is a direct 0-based integer index.
+				if (!constDirectIndex && (arg % constEntrySize)) {
 					warning("Opcode 0x%02x arg %d not a multiple of %d", opcode, arg, constEntrySize);
 				}
 				arg /= constEntrySize;
@@ -1520,14 +1579,14 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 							// read one uint8 as an argument
 							offsetList.push_back(_currentAssembly->size());
 							byteOffsets.push_back(_currentAssembly->size());
-							arg = (uint8)codeStore[pointer];
+							arg = (uint8)scriptStore[pointer];
 							pointer += 1;
 							break;
 						case 'B':
 							// read one int8 as an argument
 							offsetList.push_back(_currentAssembly->size());
 							byteOffsets.push_back(_currentAssembly->size());
-							arg = (int8)codeStore[pointer];
+							arg = (int8)scriptStore[pointer];
 							pointer += 1;
 							break;
 						case 'w':
@@ -1536,7 +1595,7 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 							offsetList.push_back(_currentAssembly->size());
 							byteOffsets.push_back(_currentAssembly->size());
 							byteOffsets.push_back(_currentAssembly->size());
-							arg = (uint16)READ_BE_UINT16(&codeStore[pointer]);
+							arg = (uint16)READ_BE_UINT16(&scriptStore[pointer]);
 							pointer += 2;
 							break;
 						case 'W':
@@ -1545,7 +1604,7 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 							offsetList.push_back(_currentAssembly->size());
 							byteOffsets.push_back(_currentAssembly->size());
 							byteOffsets.push_back(_currentAssembly->size());
-							arg = (int16)READ_BE_INT16(&codeStore[pointer]);
+							arg = (int16)READ_BE_INT16(&scriptStore[pointer]);
 							pointer += 2;
 							break;
 						case 'n':
@@ -1554,7 +1613,8 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 							break;
 						case 'p':
 							// argument is some kind of denormalised offset
-							if (arg % constEntrySize) {
+							// (direct index in D8.5+, byte offset divided by entry size in earlier versions)
+							if (!constDirectIndex && (arg % constEntrySize)) {
 								warning("Argument %d was expected to be a multiple of %d", arg, constEntrySize);
 							}
 							arg /= constEntrySize;
@@ -1604,27 +1664,27 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 					code1(LC::cb_unk);
 					codeInt(opcode);
 				} else if (opcode < 0x80) { // 2 byte instruction
-					debugC(5, kDebugCompile, "Unimplemented opcode: 0x%02x (%d)", opcode, (uint)codeStore[pointer]);
+					debugC(5, kDebugCompile, "Unimplemented opcode: 0x%02x (%d)", opcode, (uint)scriptStore[pointer]);
 					offsetList.push_back(_currentAssembly->size());
 					byteOffsets.push_back(_currentAssembly->size());
 					code1(LC::cb_unk1);
 					codeInt(opcode);
 					offsetList.push_back(_currentAssembly->size());
 					byteOffsets.push_back(_currentAssembly->size());
-					codeInt((uint)codeStore[pointer]);
+					codeInt((uint)scriptStore[pointer]);
 					pointer += 1;
 				} else { // 3 byte instruction
-					debugC(5, kDebugCompile, "Unimplemented opcode: 0x%02x (%d, %d)", opcode, (uint)codeStore[pointer], (uint)codeStore[pointer+1]);
+					debugC(5, kDebugCompile, "Unimplemented opcode: 0x%02x (%d, %d)", opcode, (uint)scriptStore[pointer], (uint)scriptStore[pointer + 1]);
 					offsetList.push_back(_currentAssembly->size());
 					byteOffsets.push_back(_currentAssembly->size());
 					code1(LC::cb_unk2);
 					codeInt(opcode);
 					offsetList.push_back(_currentAssembly->size());
 					byteOffsets.push_back(_currentAssembly->size());
-					codeInt((uint)codeStore[pointer]);
+					codeInt((uint)scriptStore[pointer]);
 					offsetList.push_back(_currentAssembly->size());
 					byteOffsets.push_back(_currentAssembly->size());
-					codeInt((uint)codeStore[pointer+1]);
+					codeInt((uint)scriptStore[pointer + 1]);
 					pointer += 2;
 				}
 			}
@@ -1699,7 +1759,7 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 		out.close();
 	}
 
-	free(codeStore);
+	free(scriptStore);
 	_assemblyArchive = nullptr;
 	_assemblyContext = nullptr;
 	_assemblyId = -1;
@@ -1710,6 +1770,8 @@ ScriptContext *LingoCompiler::compileLingoV4(Common::SeekableReadStreamEndian &s
 void LingoArchive::addCodeV4(Common::SeekableReadStreamEndian &stream, uint16 lctxIndex, const Common::String &archName, uint16 version) {
 	ScriptContext *ctx = g_lingo->_compiler->compileLingoV4(stream, lctxIndex, this, archName, version);
 	if (ctx) {
+		debugC(5, kDebugLoading, "addCodeV4(): lctxIndex=%u registered %s script id=%d scriptId=%d name='%s'",
+			lctxIndex, scriptType2str(ctx->_scriptType), ctx->_id, ctx->_scriptId, ctx->getName().c_str());
 		lctxContexts[lctxIndex] = ctx;
 		ctx->incRefCount();
 	}
@@ -1739,7 +1801,12 @@ void LingoArchive::addNamesV4(Common::SeekableReadStreamEndian &stream) {
 	uint16 offset = stream.readUint16();
 	uint16 count = stream.readUint16();
 
-	if ((uint32)stream.size() != size) {
+	if (size > (uint32)stream.size()) {
+		warning("Lnam content truncated: declared %u bytes, stream has %u", size, (uint32)stream.size());
+		return;
+	}
+
+	if (offset > stream.size()) {
 		warning("Lnam content missing");
 		return;
 	}
