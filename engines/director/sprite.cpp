@@ -617,6 +617,11 @@ void Sprite::replaceFrom(Sprite *nextSprite) {
 		return;
 
 	_scriptId = nextSprite->_scriptId;
+	// D6+ sprite behaviors and score sprite metadata are attached to the
+	// score sprite entry, not the cast member. Carry them into the live
+	// channel whenever a new frame sprite replaces the current one.
+	_spriteInfo = nextSprite->_spriteInfo;
+	_behaviors = nextSprite->_behaviors;
 
 	if (_puppet) {
 		// Whole sprite is in puppet mode.
