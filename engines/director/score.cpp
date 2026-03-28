@@ -21,6 +21,7 @@
 
 #define FORBIDDEN_SYMBOL_EXCEPTION_getenv
 
+#include "common/events.h"
 #include "common/config-manager.h"
 #include "common/file.h"
 #include "common/rational.h"
@@ -54,6 +55,7 @@
 namespace Director {
 
 #include "director/palette-fade.h"
+
 
 Score::Score(Movie *movie) {
 	_movie = movie;
@@ -662,7 +664,10 @@ void Score::update() {
 		// exitFrame is not called in this case.
 		if (!_window->_skipFrameAdvance && !_exitFrameCalled) {
 			// Exit the current frame. This can include scopeless ScoreScripts.
-			_movie->processEvent(kEventExitFrame);
+			if (_version >= kFileVer600)
+				_movie->broadcastEvent(kEventExitFrame);
+			else
+				_movie->processEvent(kEventExitFrame);
 			_exitFrameCalled = true;
 		}
 	}
@@ -786,6 +791,7 @@ void Score::update() {
 	renderFrame(_curFrameNumber, kRenderModeNormal, sound1Changed, sound2Changed);
 	_window->_newMovieStarted = false;
 
+
 	// then call the stepMovie hook (if one exists)
 	// D4 and above only call it if _allowOutdatedLingo is enabled.
 	count = _window->frozenLingoStateCount();
@@ -807,7 +813,10 @@ void Score::update() {
 	if (!_vm->_playbackPaused) {
 		_exitFrameCalled = false;
 		if (_version >= kFileVer400) {
-			_movie->processEvent(kEventEnterFrame);
+			if (_version >= kFileVer600)
+				_movie->broadcastEvent(kEventEnterFrame);
+			else
+				_movie->processEvent(kEventEnterFrame);
 		}
 	}
 	if (_window->frozenLingoStateCount() > count)
