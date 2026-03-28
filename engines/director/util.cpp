@@ -1814,6 +1814,11 @@ static int getCharEquality(Common::u32char_type_t ch) {
 	if (pl == Common::kPlatformWindows && lang != Common::JA_JPN && version < 700)
 		return equalityTableD6win[num];
 
+	// D7+ Windows (non-Japanese) uses the same table as D6 Win.
+	// No separate equality table has been observed for these versions.
+	if (pl == Common::kPlatformWindows && lang != Common::JA_JPN)
+		return equalityTableD6win[num];
+
 	warning("BUILDBOT: No equality table for Director version: %d-%s", version, Common::getLanguageCode(lang));
 	return num;
 }
