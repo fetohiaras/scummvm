@@ -859,7 +859,16 @@ void Cast::loadCast() {
 	if (_version >= kFileVer400 && !debugChannelSet(-1, kDebugNoBytecode)) {
 		// Try to load script context
 		// Even for multiple casts, ID is 1024
-		if ((r = _castArchive->getFirstResource(MKTAG('L', 'c', 't', 'x'), libResourceId)) != nullptr) {
+		if ((r = _castArchive->getFirstResource(MKTAG('L', 'c', 't', 'x'), libResourceId)) == nullptr) {
+			r = _castArchive->getFirstResource(MKTAG('L', 'c', 't', 'X'), libResourceId);
+		}
+		if (r == nullptr && _castArchive->hasResource(MKTAG('L', 'c', 't', 'x'), -1)) {
+			r = _castArchive->getFirstResource(MKTAG('L', 'c', 't', 'x'));
+		}
+		if (r == nullptr && _castArchive->hasResource(MKTAG('L', 'c', 't', 'X'), -1)) {
+			r = _castArchive->getFirstResource(MKTAG('L', 'c', 't', 'X'));
+		}
+		if (r != nullptr) {
 			loadLingoContext(*r);
 			delete r;
 		}
@@ -1765,7 +1774,10 @@ void Cast::loadLingoContext(Common::SeekableReadStreamEndian &stream) {
 			ScriptContext *script = it._value;
 			if (script->_id >= 0 && !script->isFactory()) {
 				if (_lingoArchive->getScriptContext(script->_scriptType, script->_id)) {
-					error("Cast::loadLingoContext: Script already defined for type %s, id %d", scriptType2str(script->_scriptType), script->_id);
+					warning("Cast::loadLingoContext: Script already defined for type %s, id %d, keeping the first context",
+						scriptType2str(script->_scriptType), script->_id);
+					script->setOnlyInLctxContexts();
+					continue;
 				}
 				_lingoArchive->scriptContexts[script->_scriptType][script->_id] = script;
 				_lingoArchive->patchScriptHandler(script->_scriptType, CastMemberID(script->_id, _castLibID));
