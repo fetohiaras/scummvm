@@ -194,6 +194,15 @@ const Graphics::Surface *Channel::getMask(bool forceMatte) {
 
 	Common::Rect bbox(getBbox());
 
+	if (_sprite->_cast->_type == kCastBitmap && _sprite->_ink != kInkTypeMask) {
+		BitmapCastMember *bitmap = (BitmapCastMember *)_sprite->_cast;
+		if (bitmap->_updateFlags & BitmapCastMember::kFlagFollowAlpha) {
+			Graphics::Surface *alphaMask = bitmap->getAlphaMask(bbox);
+			if (alphaMask)
+				return alphaMask;
+		}
+	}
+
 	if (needsMatte || forceMatte) {
 		// Mattes are only supported in bitmaps for now. Shapes don't need mattes,
 		// as they already have all non-enclosed white pixels transparent.
@@ -204,8 +213,8 @@ const Graphics::Surface *Channel::getMask(bool forceMatte) {
 			if (bitmap->_bitsPerPixel == 1 && _sprite->_ink != kInkTypeMatte) {
 				// 1-bit images will not blend with kInkTypeCopy, whereas 8-bit images will.
 				if (_sprite->_ink == kInkTypeCopy) {
-                    _sprite->_blendAmount = 0;
-                }
+					_sprite->_blendAmount = 0;
+				}
 				return nullptr;
 			}
 			return bitmap->getMatte(bbox);

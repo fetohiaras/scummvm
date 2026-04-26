@@ -49,6 +49,8 @@ BitmapCastMember::BitmapCastMember(Cast *cast, uint16 castId, Common::SeekableRe
 	_picture = new Picture();
 	_ditheredImg = nullptr;
 	_matte = nullptr;
+	_alpha = nullptr;
+	_alphaMask = nullptr;
 	_noMatte = false;
 	_bytes = 0;
 	_pitch = 0;
@@ -240,6 +242,8 @@ BitmapCastMember::BitmapCastMember(Cast *cast, uint16 castId, Image::ImageDecode
 	: CastMember(cast, castId) {
 	_type = kCastBitmap;
 	_matte = nullptr;
+	_alpha = nullptr;
+	_alphaMask = nullptr;
 	_noMatte = false;
 	_bytes = 0;
 	if (img != nullptr) {
@@ -278,6 +282,12 @@ BitmapCastMember::BitmapCastMember(Cast *cast, uint16 castId, BitmapCastMember &
 	_picture = source._picture ? new Picture(*source._picture) : nullptr;
 	_ditheredImg = nullptr;
 	_matte = nullptr;
+	_alpha = nullptr;
+	if (source._alpha) {
+		_alpha = new Graphics::Surface();
+		_alpha->copyFrom(*source._alpha);
+	}
+	_alphaMask = nullptr;
 
 	_pitch = source._pitch;
 	_regX = source._regX;
@@ -315,6 +325,18 @@ BitmapCastMember::~BitmapCastMember() {
 		_matte->free();
 		delete _matte;
 		_matte = nullptr;
+	}
+
+	if (_alpha) {
+		_alpha->free();
+		delete _alpha;
+		_alpha = nullptr;
+	}
+
+	if (_alphaMask) {
+		_alphaMask->free();
+		delete _alphaMask;
+		_alphaMask = nullptr;
 	}
 }
 
@@ -617,6 +639,37 @@ void BitmapCastMember::createMatte(const Common::Rect &bbox) {
 	tmp.free();
 }
 
+Graphics::Surface *BitmapCastMember::getAlphaMask(const Common::Rect &bbox) {
+	if (!_loaded)
+		load();
+
+	if (!_alpha || bbox.width() <= 0 || bbox.height() <= 0)
+		return nullptr;
+
+	if (!_alphaMask || _alphaMask->w != bbox.width() || _alphaMask->h != bbox.height()) {
+		if (_alphaMask) {
+			_alphaMask->free();
+			delete _alphaMask;
+			_alphaMask = nullptr;
+		}
+
+		_alphaMask = new Graphics::Surface();
+		_alphaMask->create(bbox.width(), bbox.height(), Graphics::PixelFormat::createFormatCLUT8());
+
+		const byte threshold = (byte)MAX<int>(1, _alphaThreshold);
+		for (int y = 0; y < _alphaMask->h; y++) {
+			int srcY = y * _alpha->h / _alphaMask->h;
+			for (int x = 0; x < _alphaMask->w; x++) {
+				int srcX = x * _alpha->w / _alphaMask->w;
+				byte alpha = *(const byte *)_alpha->getBasePtr(srcX, srcY);
+				*(byte *)_alphaMask->getBasePtr(x, y) = alpha >= threshold ? 0xff : 0x00;
+			}
+		}
+	}
+
+	return _alphaMask;
+}
+
 Graphics::Surface *BitmapCastMember::getMatte(const Common::Rect &bbox) {
 	// Lazy loading of mattes
 	if (!_matte && !_noMatte) {
@@ -681,6 +734,7 @@ void BitmapCastMember::load() {
 
 	uint32 tag = _tag;
 	uint16 imgId = _castId;
+	uint16 alphaId = 0;
 	uint16 realId = 0;
 
 	Image::ImageDecoder *img = nullptr;
@@ -693,7 +747,8 @@ void BitmapCastMember::load() {
 				tag = it.tag;
 
 				pic = _cast->getResource(tag, imgId);
-				break;
+			} else if (it.tag == MKTAG('A', 'L', 'F', 'A')) {
+				alphaId = it.index;
 			}
 		}
 
@@ -821,6 +876,31 @@ void BitmapCastMember::load() {
 
 	setPicture(*img, true);
 
+	if (alphaId && (_updateFlags & kFlagFollowAlpha)) {
+		Common::SeekableReadStream *alphaPic = _cast->getResource(MKTAG('A', 'L', 'F', 'A'), alphaId);
+		if (alphaPic) {
+			uint16 alphaPitch = (_initialRect.width() + 1) & ~1;
+			BITDDecoder alphaDecoder(_initialRect.width(), _initialRect.height(), 8, alphaPitch, g_director->getPalette(), _cast->_version);
+			if (alphaDecoder.loadStream(*alphaPic)) {
+				if (_alpha) {
+					_alpha->free();
+					delete _alpha;
+				}
+				if (_alphaMask) {
+					_alphaMask->free();
+					delete _alphaMask;
+					_alphaMask = nullptr;
+				}
+				_alpha = new Graphics::Surface();
+				_alpha->copyFrom(*alphaDecoder.getSurface());
+				debugC(4, kDebugImages, "BitmapCastMember::load(): Loaded ALFA mask id: %d for cast %d, %dx%d", alphaId, _castId, _alpha->w, _alpha->h);
+			} else {
+				warning("BitmapCastMember::load(): Unable to load ALFA id: %d for bitmap cast %d", alphaId, _castId);
+			}
+			delete alphaPic;
+		}
+	}
+
 	if (ConfMan.getBool("dump_scripts")) {
 
 		Common::String prepend = _cast->getMacName();
@@ -854,6 +934,18 @@ void BitmapCastMember::unload() {
 		_ditheredImg = nullptr;
 	}
 
+	if (_alpha) {
+		_alpha->free();
+		delete _alpha;
+		_alpha = nullptr;
+	}
+
+	if (_alphaMask) {
+		_alphaMask->free();
+		delete _alphaMask;
+		_alphaMask = nullptr;
+	}
+
 	_loaded = false;
 }
 
@@ -878,6 +970,16 @@ void BitmapCastMember::setPicture(PictureReference &picture) {
 		delete _ditheredImg;
 		_ditheredImg = nullptr;
 	}
+	if (_alpha) {
+		_alpha->free();
+		delete _alpha;
+		_alpha = nullptr;
+	}
+	if (_alphaMask) {
+		_alphaMask->free();
+		delete _alphaMask;
+		_alphaMask = nullptr;
+	}
 
 	// Make sure we get redrawn
 	setModified(true);
@@ -887,6 +989,16 @@ void BitmapCastMember::setPicture(PictureReference &picture) {
 void BitmapCastMember::setPicture(Image::ImageDecoder &image, bool adjustSize) {
 	delete _picture;
 	_picture = new Picture(image);
+	if (_alpha) {
+		_alpha->free();
+		delete _alpha;
+		_alpha = nullptr;
+	}
+	if (_alphaMask) {
+		_alphaMask->free();
+		delete _alphaMask;
+		_alphaMask = nullptr;
+	}
 	if (adjustSize) {
 		auto surf = image.getSurface();
 		_size = surf->pitch * surf->h + _picture->getPaletteSize();

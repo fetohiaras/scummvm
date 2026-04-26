@@ -45,6 +45,7 @@ public:
 	bool isModified() override;
 	void createMatte(const Common::Rect &bbox);
 	Graphics::Surface *getMatte(const Common::Rect &bbox);
+	Graphics::Surface *getAlphaMask(const Common::Rect &bbox);
 	Graphics::Surface *getDitherImg();
 
 	bool hasField(int field) override;
@@ -74,6 +75,8 @@ public:
 	Picture *_picture = nullptr;
 	Graphics::Surface *_ditheredImg;
 	Graphics::Surface *_matte;
+	Graphics::Surface *_alpha;
+	Graphics::Surface *_alphaMask;
 
 	int _version;
 
