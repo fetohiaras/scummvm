@@ -142,6 +142,12 @@ static const LingoV4Bytecode lingoV4[] = {
 	{ 0xa5, LC::c_stackdrop, 	"w" },
 	{ 0xa6, LC::cb_v4theentitynamepush, "wN" },
 	// Later Director versions add more wide-form opcodes beyond the D4-era table.
+	// ProjectorRays kOpObjCall (0x67 small / 0xa7 wide): OOP method call where the first
+	// argument on the stack is the receiver object.  Confirmed in McDonalds A Ilha dos
+	// Ogo Pogos (D8.5 Windows) — used for indexed chunk-expression reads such as
+	//   member("monstros").line[x]  →  kOpObjCall getProp(castRef, #line, x)
+	// and for list methods such as  myList.getAt(i), myList.max(), etc.
+	{ 0xa7, LC::cb_objcall,		"wN" },
 	// ProjectorRays identifies 0xae as the wide form of pushint16 (confirmed in
 	// McDonalds A Ilha dos Ogo Pogos, D8.5 Windows).
 	{ 0xae, LC::c_intpush,		"W" },
@@ -570,6 +576,61 @@ void LC::cb_call() {
 
 }
 
+
+// Handler for kOpObjCall (0x67 small / 0xa7 wide): OOP-style method call.
+// The method name is read from the name table.  The argument list on the stack
+// follows the Director convention: the receiver object is pushed first (deepest),
+// followed by the method arguments, then ARGC(N) on top.
+//
+// For the common case (list methods, property-list getProp, etc.) we delegate to
+// LC::call() which already dispatches via _builtinListHandlers when the first arg
+// is an ARRAY/PARRAY.  The one case that needs special treatment is an indexed
+// chunk-expression read:
+//   obj.getProp(#chunkType, index)  where obj is a CASTREF / FIELDREF
+// which represents  "chunkType index of member" and is handled here directly via
+// LC::chunkRef() rather than through b_getProp (which only handles 2 args).
+void LC::cb_objcall() {
+	Common::String name = g_lingo->readString();
+
+	Datum nargs = g_lingo->pop();
+	if ((nargs.type != ARGC) && (nargs.type != ARGCNORET)) {
+		warning("cb_objcall: expected ARGC/ARGCNORET, got %s", nargs.type2str());
+		return;
+	}
+
+	int n = nargs.u.i;
+	bool retVal = (nargs.type == ARGC);
+
+	// Indexed chunk expression: obj.getProp(#chunkType, index) where obj is a cast member.
+	// Stack layout (bottom→top): [castRef, #chunkType, index]
+	if (name.equalsIgnoreCase("getProp") && n == 3) {
+		Datum obj = g_lingo->_state->stack[g_lingo->_state->stack.size() - 3];
+		if (obj.type == CASTREF || obj.type == FIELDREF) {
+			Datum index  = g_lingo->pop();   // top = index
+			Datum propDat = g_lingo->pop();  // middle = #chunkType symbol
+			Datum objDat  = g_lingo->pop();  // bottom = cast member ref
+
+			Common::String propName = propDat.asString();
+			ChunkType chunkType = kChunkLine; // sensible default
+			if (propName.equalsIgnoreCase("char"))
+				chunkType = kChunkChar;
+			else if (propName.equalsIgnoreCase("word"))
+				chunkType = kChunkWord;
+			else if (propName.equalsIgnoreCase("item"))
+				chunkType = kChunkItem;
+			// "line" (and any other symbol) falls through to the default kChunkLine
+
+			int idx = index.asInt();
+			Datum ref = LC::chunkRef(chunkType, idx, idx, objDat);
+			if (retVal)
+				g_lingo->push(ref.eval());
+			return;
+		}
+	}
+
+	// All other cases: delegate to the standard call dispatcher.
+	LC::call(name, n, retVal);
+}
 
 void LC::cb_globalpush() {
 	Common::String name = g_lingo->readString();

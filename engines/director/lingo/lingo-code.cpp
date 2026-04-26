@@ -140,6 +140,7 @@ static const struct FuncDescr {
 	{ LC::c_wordToOfRef,	"c_wordToOfRef",	"" },	// D3
 	{ LC::c_xpop,			"c_xpop",			""  },
 	{ LC::cb_call,			"cb_call",			"s" },
+	{ LC::cb_objcall,		"cb_objcall",		"s" },
 	{ LC::cb_delete,		"cb_delete",		"i" },
 	{ LC::cb_hilite,		"cb_hilite",		"" },
 	{ LC::cb_globalassign,	"cb_globalassign",	"s" },

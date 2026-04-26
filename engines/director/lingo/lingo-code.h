@@ -149,6 +149,7 @@ void cb_unk2();
 
 // bytecode-related instructions
 void cb_call();
+void cb_objcall();
 void cb_delete();
 void cb_hilite();
 void cb_globalassign();
