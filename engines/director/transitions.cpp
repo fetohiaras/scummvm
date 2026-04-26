@@ -160,8 +160,8 @@ void Window::playTransition(uint frame, RenderMode mode, uint16 transDuration, u
 	TransParams t;
 
 	if (transType < 1 || transType > ARRAYSIZE(transProps) - 1) {
-		warning("playTransition(): transType is not in [1..%d]: %d, falling back to dissolve", ARRAYSIZE(transProps) - 1, transType);
-		transType = kTransDissolvePixelsFast;
+		warning("playTransition(): transType is not in [1..%d]: %d, falling back to cut", ARRAYSIZE(transProps) - 1, transType);
+		transType = kTransNone;
 	}
 
 	t.type = transType;
@@ -233,6 +233,12 @@ void Window::playTransition(uint frame, RenderMode mode, uint16 transDuration, u
 	Common::Rect rfrom, rto;
 
 	initTransParams(t, clipRect);
+
+	if (t.type == kTransNone) {
+		exitTransition(t, &nextFrame, clipRect);
+		debugC(2, kDebugImages, "Window::playTransition(): Transition %d finished without animation", t.type);
+		return;
+	}
 
 	Graphics::ManagedSurface *blitFrom;
 	bool fullredraw = false;
