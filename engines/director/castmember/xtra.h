@@ -42,6 +42,8 @@ public:
 	void setField(int field, const Datum &value) override;
 	Graphics::MacWidget *createWidget(Common::Rect &bbox, Channel *channel, SpriteType spriteType) override;
 
+	Common::U32String getText();
+
 	Common::String formatInfo() override;
 
 	uint32 getCastDataSize() override;

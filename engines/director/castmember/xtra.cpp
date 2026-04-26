@@ -120,6 +120,7 @@ XtraCastMember::XtraCastMember(Cast *cast, uint16 castId, XtraCastMember &source
 
 bool XtraCastMember::hasField(int field) {
 	switch (field) {
+	case kTheText:
 	case kTheCuePointNames:		// D6
 	case kTheCuePointTimes:		// D6
 	case kTheCurrentTime:		// D6
@@ -135,6 +136,9 @@ Datum XtraCastMember::getField(int field) {
 	Datum d;
 
 	switch (field) {
+	case kTheText:
+		d = Datum(_payloadText);
+		break;
 	default:
 		d = CastMember::getField(field);
 		break;
@@ -145,6 +149,11 @@ Datum XtraCastMember::getField(int field) {
 
 void XtraCastMember::setField(int field, const Datum &d) {
 	switch (field) {
+	case kTheText:
+		_payloadText = d.asString();
+		_payloadKind = kPayloadText;
+		_modified = true;
+		return;
 	default:
 		break;
 	}
@@ -210,6 +219,42 @@ void XtraCastMember::loadPayloadSummary() {
 
 	if (_payloadKind == kPayloadUnknown && debugChannelSet(2, kDebugLoading))
 		debugC(2, kDebugLoading, "XtraCastMember::loadPayloadSummary(): cast %d has no renderable XMED text", _castId);
+}
+
+Common::U32String XtraCastMember::getText() {
+	for (auto &it : _children) {
+		if (it.tag != MKTAG('X', 'M', 'E', 'D'))
+			continue;
+		Common::SeekableReadStreamEndian *xmedData = _cast->getResource(it.tag, it.index);
+		if (!xmedData)
+			continue;
+		Common::Array<byte> bytes;
+		bytes.resize(xmedData->size());
+		if (!bytes.empty())
+			xmedData->read(&bytes[0], bytes.size());
+		delete xmedData;
+
+		// Find longest printable run — structured game data ([# ...) is the content we want,
+		// so don't penalize it the way loadPayloadSummary/extractBestPrintableRun does.
+		// Keep \r as-is: Lingo's line chunk delimiter is '\r', not '\n'.
+		Common::String current, best;
+		for (uint32 i = 0; i < bytes.size(); i++) {
+			byte b = bytes[i];
+			if (isLikelyXmedTextByte(b)) {
+				current += (char)b;
+			} else {
+				if (current.size() > best.size())
+					best = current;
+				current.clear();
+			}
+		}
+		if (current.size() > best.size())
+			best = current;
+
+		if (!best.empty())
+			return _cast->decodeString(best);
+	}
+	return Common::U32String();
 }
 
 Graphics::MacWidget *XtraCastMember::createWidget(Common::Rect &bbox, Channel *channel, SpriteType spriteType) {

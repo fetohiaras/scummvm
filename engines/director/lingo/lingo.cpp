@@ -35,6 +35,7 @@
 #include "director/window.h"
 #include "director/castmember/castmember.h"
 #include "director/castmember/text.h"
+#include "director/castmember/xtra.h"
 
 #include "director/lingo/lingo-ast.h"
 #include "director/lingo/lingo-code.h"
@@ -1926,6 +1927,9 @@ Common::U32String Lingo::evalChunkRef(const Datum &var) {
 			switch (member->_type) {
 			case kCastText:
 				result = ((TextCastMember *)member)->getText();
+				break;
+			case kCastXtra:
+				result = ((XtraCastMember *)member)->getText();
 				break;
 			default:
 				warning("evalChunkRef: Unhandled cast type %d", member->_type);
