@@ -1269,7 +1269,7 @@ void Movie::processEvent(LEvent event, int targetId) {
 
 void Movie::broadcastEvent(LEvent event) {
 	Common::Queue<LingoEvent> queue;
-	const uint initialQueueSize = queue.size();
+	const int initialQueueSize = queue.size();
 
 	for (uint i = 1; i < _score->_channels.size(); i++) {
 		if (_score->_channels[i] && _score->_channels[i]->_sprite && _score->_channels[i]->_sprite->_behaviors.size()) {
@@ -1277,10 +1277,10 @@ void Movie::broadcastEvent(LEvent event) {
 		}
 	}
 
-	// D6+ frame scripts live on the script channel and can exist even when there
-	// are no sprite behaviors on stage yet. In that case the loop above queues
-	// nothing, so make sure the normal frame/movie resolution path still runs.
-	if (queue.size() == initialQueueSize)
+	// D6+ frame scripts live on the script channel and must run in addition to
+	// sprite behavior broadcasts. Otherwise a hold frame with interactive
+	// buttons advances as soon as those button behaviors are present.
+	if (_vm->getVersion() >= 600 || queue.size() == initialQueueSize)
 		queueEvent(queue, event, 0);
 
 	_vm->setCurrentWindow(this->getWindow());
@@ -1460,8 +1460,13 @@ Datum Score::createScriptInstance(BehaviorElement *behavior) {
 		behavior->memberID.member == 95 ||
 		behavior->memberID.member == 96) {
 		// Only replace when the context has no handlers to avoid recompiling on
-		// every frame for behaviors covering many sprite channels at once.
-		bool needsReplacement = (scr == nullptr) ||
+		// every frame for behaviors covering many sprite channels at once. The
+		// D8.5 bytecode contexts for the standard rollover helpers are non-empty
+		// but misdecoded, so force them once to the known source replacement.
+		bool forceKnownRollover =
+			(behavior->memberID.member == 95 || behavior->memberID.member == 96) &&
+			(scr == nullptr || !scr->getName().hasPrefixIgnoreCase("builtin-behavior-"));
+		bool needsReplacement = forceKnownRollover || (scr == nullptr) ||
 			(scr->_functionHandlers.empty() && scr->_eventHandlers.empty());
 		if (needsReplacement) {
 			debugC(1, kDebugLingoExec,
