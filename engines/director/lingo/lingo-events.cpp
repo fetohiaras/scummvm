@@ -332,7 +332,7 @@ static bool readUtf8TextFile(const Common::FSNode &fileNode, Common::U32String &
 static void normalizeDumpedScoreScriptSource(uint16 memberId, Common::U32String &source) {
 	Common::String patched = source.encode();
 
-	if (memberId == 33) {
+	if (memberId == 33 || memberId == 169) {
 		replaceAll(patched, "    addAt(cardjog, a)", "    add(cardjog, a)");
 		replaceAll(patched, "    addAt(cardcomp, a)", "    add(cardcomp, a)");
 		replaceAll(patched, "  cardcomp.addAt(random(count(cardcomp)), 41)", "  addAt(cardcomp, random(count(cardcomp)), 41)");
@@ -479,35 +479,76 @@ static bool loadBuiltinBehaviorSource(Movie *movie, uint16 memberId, ScriptType 
 
 	case 95:
 		script =
-			"property spriteNum, myBuiltInCursor, mySavedCursor\n"
+			"property mySpriteNum, myBuiltInCursor, mySavedCursor\n"
 			"\n"
 			"on beginSprite me\n"
-			"  set mySavedCursor = the cursor of sprite me.spriteNum\n"
+			"  set mySpriteNum = the currentSpriteNum\n"
+			"  set mySavedCursor = the cursor of sprite mySpriteNum\n"
 			"  if voidp(myBuiltInCursor) then\n"
 			"    set myBuiltInCursor = 280\n"
 			"  end if\n"
-			"  set the cursor of sprite me.spriteNum to myBuiltInCursor\n"
+			"  set the cursor of sprite mySpriteNum to myBuiltInCursor\n"
 			"end\n"
 			"\n"
 			"on endSprite me\n"
-			"  set the cursor of sprite me.spriteNum to mySavedCursor\n"
+			"  if not voidp(mySpriteNum) then\n"
+			"    set the cursor of sprite mySpriteNum to mySavedCursor\n"
+			"  end if\n"
 			"end\n";
 		break;
 
 	case 96:
 		script =
-			"property spriteNum, myStandardMember, myRollovermember\n"
+			"property mySpriteNum, myStandardMember, myRollovermember\n"
 			"\n"
 			"on beginSprite me\n"
-			"  set myStandardMember = the member of sprite me.spriteNum\n"
+			"  set mySpriteNum = the currentSpriteNum\n"
+			"  set myStandardMember = the member of sprite mySpriteNum\n"
 			"end\n"
 			"\n"
 			"on mouseEnter me\n"
-			"  set the member of sprite me.spriteNum to myRollovermember\n"
+			"  set the member of sprite mySpriteNum to myRollovermember\n"
 			"end\n"
 			"\n"
 			"on mouseLeave me\n"
-			"  set the member of sprite me.spriteNum to myStandardMember\n"
+			"  set the member of sprite mySpriteNum to myStandardMember\n"
+			"end\n";
+		break;
+
+	case 174:
+	case 193:
+		script =
+			"on mouseEnter me\n"
+			"  puppetSound(3, \"sound_02\")\n"
+			"end\n"
+			"\n"
+			"on mouseUp me\n"
+			"  puppetSound(3, \"sound_03\")\n"
+			"  quit\n"
+			"end\n";
+		break;
+
+	case 194:
+		script =
+			"on mouseEnter me\n"
+			"  puppetSound(3, \"sound_02\")\n"
+			"end\n"
+			"\n"
+			"on mouseUp me\n"
+			"  puppetSound(3, \"sound_03\")\n"
+			"  go(\"tabu2\")\n"
+			"end\n";
+		break;
+
+	case 197:
+		script =
+			"on mouseEnter me\n"
+			"  puppetSound(3, \"sound_02\")\n"
+			"end\n"
+			"\n"
+			"on mouseUp me\n"
+			"  puppetSound(3, \"sound_03\")\n"
+			"  go(\"sair\")\n"
 			"end\n";
 		break;
 
@@ -1450,7 +1491,8 @@ Datum Score::createScriptInstance(BehaviorElement *behavior) {
 	// or missing bytecode contexts in central.dxr. Load from the ProjectorRays dump
 	// as a fallback so the behavior lifecycle (beginSprite, exitFrame, mouseUp) works.
 	// Members: 37 (tile setup), 40 (advance), 45/46 (sound/click), 52 (transition),
-	//          55 (timeout loop), 95/96 (rollover cursor/member change from Scripts.cxt).
+	//          55 (timeout loop), 95/96 (rollover cursor/member change from Scripts.cxt),
+	//          169/174/193/194/197 (menu and exit buttons).
 	if (behavior->memberID.member == 40 ||
 		behavior->memberID.member == 52 ||
 		behavior->memberID.member == 45 ||
@@ -1458,7 +1500,12 @@ Datum Score::createScriptInstance(BehaviorElement *behavior) {
 		behavior->memberID.member == 37 ||
 		behavior->memberID.member == 55 ||
 		behavior->memberID.member == 95 ||
-		behavior->memberID.member == 96) {
+		behavior->memberID.member == 96 ||
+		behavior->memberID.member == 169 ||
+		behavior->memberID.member == 174 ||
+		behavior->memberID.member == 193 ||
+		behavior->memberID.member == 194 ||
+		behavior->memberID.member == 197) {
 		// Only replace when the context has no handlers to avoid recompiling on
 		// every frame for behaviors covering many sprite channels at once. The
 		// D8.5 bytecode contexts for the standard rollover helpers are non-empty
@@ -1466,7 +1513,12 @@ Datum Score::createScriptInstance(BehaviorElement *behavior) {
 		bool forceKnownRollover =
 			(behavior->memberID.member == 95 || behavior->memberID.member == 96) &&
 			(scr == nullptr || !scr->getName().hasPrefixIgnoreCase("builtin-behavior-"));
-		bool needsReplacement = forceKnownRollover || (scr == nullptr) ||
+		bool forceKnownButton = behavior->memberID.member == 169 ||
+			behavior->memberID.member == 174 ||
+			behavior->memberID.member == 193 ||
+			behavior->memberID.member == 194 ||
+			behavior->memberID.member == 197;
+		bool needsReplacement = forceKnownButton || forceKnownRollover || (scr == nullptr) ||
 			(scr->_functionHandlers.empty() && scr->_eventHandlers.empty());
 		if (needsReplacement) {
 			debugC(1, kDebugLingoExec,
