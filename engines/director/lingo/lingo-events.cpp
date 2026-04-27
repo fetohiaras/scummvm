@@ -355,12 +355,87 @@ static bool loadBuiltinBehaviorSource(Movie *movie, uint16 memberId, ScriptType 
 	Common::String script;
 
 	switch (memberId) {
+	case 36:
+		script =
+			"on prepareFrame me\n"
+			"  global casa, datacasa, newcasa\n"
+			"  set x = 1\n"
+			"  repeat while x <= 99\n"
+			"    set the visible of sprite x to 1\n"
+			"    set x = x + 1\n"
+			"  end repeat\n"
+			"  set tileSprite = casa + 4\n"
+			"  set the locV of sprite 30 to (the locV of sprite tileSprite) - 70\n"
+			"  set the locH of sprite 30 to the locH of sprite tileSprite\n"
+			"  set datacasa = value(line casa of the text of member \"casas\")\n"
+			"end\n"
+			"\n"
+			"on exitFrame me\n"
+			"  global newcasa\n"
+			"  if newcasa <= 0 then\n"
+			"    go(\"wait\")\n"
+			"  end if\n"
+			"end\n";
+		break;
+
+	case 38:
+		script =
+			"on exitFrame me\n"
+			"  go to the frame\n"
+			"end\n";
+		break;
+
 	case 37:
 		script =
 			"property myDummy\n"
 			"\n"
 			"on beginSprite me\n"
 			"  set myDummy = 0\n"
+			"end\n";
+		break;
+
+	case 40:
+		script =
+			"on mouseUp me\n"
+			"  global vez, habil, cheatcount\n"
+			"  set cheatcount = cheatcount + 1\n"
+			"  if cheatcount > 5 then\n"
+			"    set cheatcount = 1\n"
+			"  end if\n"
+			"  if vez = 1 then\n"
+			"    set habil = random(5)\n"
+			"    go(\"vez1\")\n"
+			"  else\n"
+			"    go(\"vez2\")\n"
+			"  end if\n"
+			"end\n";
+		break;
+
+	case 160:
+		script =
+			"on exitFrame me\n"
+			"  global casa, newcasa, volta\n"
+			"  if newcasa <= 0 then\n"
+			"    go(\"wait\")\n"
+			"    exit\n"
+			"  end if\n"
+			"  if volta = 0 then\n"
+			"    set casa = casa + 1\n"
+			"    if casa > 21 then\n"
+			"      set casa = casa - 21\n"
+			"    end if\n"
+			"    go(\"tabu\")\n"
+			"    set newcasa = newcasa - 1\n"
+			"  else\n"
+			"    if volta = 1 then\n"
+			"      set casa = casa - 1\n"
+			"      if casa < 1 then\n"
+			"        set casa = casa + 21\n"
+			"      end if\n"
+			"      go(\"tabu\")\n"
+			"      set newcasa = newcasa - 1\n"
+			"    end if\n"
+			"  end if\n"
 			"end\n";
 		break;
 
@@ -393,8 +468,15 @@ static bool loadBuiltinBehaviorSource(Movie *movie, uint16 memberId, ScriptType 
 			"end\n"
 			"\n"
 			"on exitFrame me\n"
+			"  global newcasa\n"
 			"  if voidp(myInitialized) then\n"
 			"    initializeLoop(me)\n"
+			"  end if\n"
+			"  if myTimeOutFrame = \"anda\" then\n"
+			"    if newcasa <= 0 then\n"
+			"      go(myStartFrame)\n"
+			"      exit\n"
+			"    end if\n"
 			"  end if\n"
 			"  if the ticks > myTimeOut then\n"
 			"    go(myTimeOutFrame)\n"
@@ -416,7 +498,7 @@ static bool loadBuiltinBehaviorSource(Movie *movie, uint16 memberId, ScriptType 
 			"  end repeat\n"
 			"  if count(cardcomp) > 0 then\n"
 			"    set x = getAt(cardcomp, random(count(cardcomp)))\n"
-			"    set monstrocomp = value(line x of member \"monstros\")\n"
+			"    set monstrocomp = value(line x of the text of member \"monstros\")\n"
 			"    if not voidp(monstrocomp) then\n"
 			"      set the text of member \"nomecomp\" to monstrocomp.nome\n"
 			"    end if\n"
@@ -1490,17 +1572,20 @@ Datum Score::createScriptInstance(BehaviorElement *behavior) {
 	// HACK: McDonalds A Ilha dos Ogo Pogos (D8.5) — these cast members have empty
 	// or missing bytecode contexts in central.dxr. Load from the ProjectorRays dump
 	// as a fallback so the behavior lifecycle (beginSprite, exitFrame, mouseUp) works.
-	// Members: 37 (tile setup), 40 (advance), 45/46 (sound/click), 52 (transition),
-	//          55 (timeout loop), 95/96 (rollover cursor/member change from Scripts.cxt),
-	//          169/174/193/194/197 (menu and exit buttons).
-	if (behavior->memberID.member == 40 ||
-		behavior->memberID.member == 52 ||
+	// Members: 36/37 (map setup), 38 (wait frame loop), 40 (advance), 45/46 (sound/click),
+	//          52 (transition), 55 (timeout loop), 95/96 (rollover cursor/member change),
+	//          160 (board movement), 169/174/193/194/197 (menu and exit buttons).
+	if (behavior->memberID.member == 36 ||
+		behavior->memberID.member == 37 ||
+		behavior->memberID.member == 38 ||
+		behavior->memberID.member == 40 ||
 		behavior->memberID.member == 45 ||
 		behavior->memberID.member == 46 ||
-		behavior->memberID.member == 37 ||
+		behavior->memberID.member == 52 ||
 		behavior->memberID.member == 55 ||
 		behavior->memberID.member == 95 ||
 		behavior->memberID.member == 96 ||
+		behavior->memberID.member == 160 ||
 		behavior->memberID.member == 169 ||
 		behavior->memberID.member == 174 ||
 		behavior->memberID.member == 193 ||
@@ -1510,6 +1595,14 @@ Datum Score::createScriptInstance(BehaviorElement *behavior) {
 		// every frame for behaviors covering many sprite channels at once. The
 		// D8.5 bytecode contexts for the standard rollover helpers are non-empty
 		// but misdecoded, so force them once to the known source replacement.
+		bool knownMapBehavior = behavior->memberID.member == 36 ||
+			behavior->memberID.member == 37 ||
+			behavior->memberID.member == 38 ||
+			behavior->memberID.member == 40 ||
+			behavior->memberID.member == 55 ||
+			behavior->memberID.member == 160;
+		bool forceKnownMap = knownMapBehavior &&
+			(scr == nullptr || !scr->getName().hasPrefixIgnoreCase("builtin-behavior-"));
 		bool forceKnownRollover =
 			(behavior->memberID.member == 95 || behavior->memberID.member == 96) &&
 			(scr == nullptr || !scr->getName().hasPrefixIgnoreCase("builtin-behavior-"));
@@ -1518,7 +1611,7 @@ Datum Score::createScriptInstance(BehaviorElement *behavior) {
 			behavior->memberID.member == 193 ||
 			behavior->memberID.member == 194 ||
 			behavior->memberID.member == 197;
-		bool needsReplacement = forceKnownButton || forceKnownRollover || (scr == nullptr) ||
+		bool needsReplacement = forceKnownMap || forceKnownButton || forceKnownRollover || (scr == nullptr) ||
 			(scr->_functionHandlers.empty() && scr->_eventHandlers.empty());
 		if (needsReplacement) {
 			debugC(1, kDebugLingoExec,
