@@ -779,7 +779,20 @@ void DirectorPlotData::inkBlitSurface(Common::Rect &srcRect, const Graphics::Sur
 			if (srfMask && (srcPoint.y >= srfMask->h))
 				continue;
 
-			if (!(mask || srfMask) || (msk && (*msk++))) {
+			byte maskAlpha = 0xff;
+			if (mask || srfMask) {
+				if (!msk)
+					continue;
+				maskAlpha = *msk++;
+				if (!maskAlpha)
+					continue;
+			}
+
+			int oldAlpha = alpha;
+			if (mask && !srfMask && maskAlpha < 0xff)
+				alpha = 0xff - maskAlpha;
+
+			{
 				if (d->_wm->_pixelformat.bytesPerPixel == 1) {
 					primitives->drawPoint(destRect.left + j, destRect.top + i,
 										preprocessColor(*((byte *)srf->getBasePtr(srcPoint.x, srcPoint.y))), this);
@@ -788,6 +801,8 @@ void DirectorPlotData::inkBlitSurface(Common::Rect &srcRect, const Graphics::Sur
 										preprocessColor(*((uint32 *)srf->getBasePtr(srcPoint.x, srcPoint.y))), this);
 				}
 			}
+
+			alpha = oldAlpha;
 		}
 	}
 

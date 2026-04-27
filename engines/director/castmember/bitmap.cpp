@@ -43,6 +43,54 @@
 
 namespace Director {
 
+static Graphics::Surface *decodeALFASurface(Common::SeekableReadStream &stream, int width, int height) {
+	if (width <= 0 || height <= 0)
+		return nullptr;
+
+	Common::Array<byte> pixels;
+	while (!stream.eos()) {
+		int data = stream.readByte();
+		int len = data + 1;
+		if (data & 0x80) {
+			len = ((data ^ 0xff) & 0xff) + 2;
+			if (stream.eos())
+				break;
+			data = stream.readByte();
+			for (int i = 0; i < len; i++)
+				pixels.push_back(data);
+		} else {
+			for (int i = 0; i < len && !stream.eos(); i++)
+				pixels.push_back(stream.readByte());
+		}
+	}
+
+	uint32 rowBytes = (width + 1) & ~1;
+	if (pixels.size() >= (uint32)width * height && pixels.size() % height == 0) {
+		uint32 storedRowBytes = pixels.size() / height;
+		if (storedRowBytes >= (uint32)width)
+			rowBytes = storedRowBytes;
+	}
+
+	uint32 bytesNeeded = rowBytes * height;
+	if (pixels.size() < bytesNeeded) {
+		warning("decodeALFASurface(): premature end of stream (unpacked: %d, expected: %d, w: %d, h: %d, rowBytes: %d)",
+				(int)pixels.size(), bytesNeeded, width, height, rowBytes);
+		while (pixels.size() < bytesNeeded)
+			pixels.push_back(0);
+	}
+
+	Graphics::Surface *surface = new Graphics::Surface();
+	surface->create(width, height, Graphics::PixelFormat::createFormatCLUT8());
+	for (int y = 0; y < height; y++) {
+		for (int x = 0; x < width; x++)
+			*(byte *)surface->getBasePtr(x, y) = pixels[y * rowBytes + x];
+	}
+
+	debugC(5, kDebugImages, "decodeALFASurface(): unpacked %d bytes, width: %d, height: %d, rowBytes: %d",
+			(int)pixels.size(), width, height, rowBytes);
+	return surface;
+}
+
 BitmapCastMember::BitmapCastMember(Cast *cast, uint16 castId, Common::SeekableReadStreamEndian &stream, uint32 castTag, uint16 version, uint8 flags1)
 		: CastMember(cast, castId, stream) {
 	_type = kCastBitmap;
@@ -662,7 +710,7 @@ Graphics::Surface *BitmapCastMember::getAlphaMask(const Common::Rect &bbox) {
 			for (int x = 0; x < _alphaMask->w; x++) {
 				int srcX = x * _alpha->w / _alphaMask->w;
 				byte alpha = *(const byte *)_alpha->getBasePtr(srcX, srcY);
-				*(byte *)_alphaMask->getBasePtr(x, y) = alpha >= threshold ? 0xff : 0x00;
+				*(byte *)_alphaMask->getBasePtr(x, y) = alpha >= threshold ? alpha : 0x00;
 			}
 		}
 	}
@@ -879,9 +927,8 @@ void BitmapCastMember::load() {
 	if (alphaId && (_updateFlags & kFlagFollowAlpha)) {
 		Common::SeekableReadStream *alphaPic = _cast->getResource(MKTAG('A', 'L', 'F', 'A'), alphaId);
 		if (alphaPic) {
-			uint16 alphaPitch = (_initialRect.width() + 1) & ~1;
-			BITDDecoder alphaDecoder(_initialRect.width(), _initialRect.height(), 8, alphaPitch, g_director->getPalette(), _cast->_version);
-			if (alphaDecoder.loadStream(*alphaPic)) {
+			Graphics::Surface *alpha = decodeALFASurface(*alphaPic, _initialRect.width(), _initialRect.height());
+			if (alpha) {
 				if (_alpha) {
 					_alpha->free();
 					delete _alpha;
@@ -891,8 +938,7 @@ void BitmapCastMember::load() {
 					delete _alphaMask;
 					_alphaMask = nullptr;
 				}
-				_alpha = new Graphics::Surface();
-				_alpha->copyFrom(*alphaDecoder.getSurface());
+				_alpha = alpha;
 				debugC(4, kDebugImages, "BitmapCastMember::load(): Loaded ALFA mask id: %d for cast %d, %dx%d", alphaId, _castId, _alpha->w, _alpha->h);
 			} else {
 				warning("BitmapCastMember::load(): Unable to load ALFA id: %d for bitmap cast %d", alphaId, _castId);
