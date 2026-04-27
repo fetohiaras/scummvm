@@ -137,7 +137,13 @@ Datum XtraCastMember::getField(int field) {
 
 	switch (field) {
 	case kTheText:
-		d = Datum(_payloadText);
+		if (!_payloadText.empty()) {
+			d = Datum(_payloadText);
+		} else {
+			// Structured XMED payloads are not renderable text widgets, but Lingo
+			// still exposes them through "the text of member".
+			d = Datum(getText().encode(Common::kUtf8));
+		}
 		break;
 	default:
 		d = CastMember::getField(field);

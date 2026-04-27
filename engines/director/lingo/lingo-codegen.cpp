@@ -702,6 +702,18 @@ bool LingoCompiler::visitSetNode(SetNode *node) {
 		case kFuncNode:
 			{
 				FuncNode *func = static_cast<FuncNode *>(the->obj);
+				if (func->name->equalsIgnoreCase("member")) {
+					int fieldId = getTheFieldID(kTheCast, *the->prop, true);
+					if (fieldId >= 0) {
+						COMPILE(node->val);
+						COMPILE(the->obj);
+						code1(LC::c_theentityassign);
+						codeInt(kTheCast);
+						codeInt(fieldId);
+						return true;
+					}
+					// fall back to generic object
+				}
 				if (func->args->size() == 1) {
 					if (func->name->equalsIgnoreCase("cast")) {
 						int fieldId = getTheFieldID(kTheCast, *the->prop, true);
@@ -1379,6 +1391,17 @@ bool LingoCompiler::visitTheOfNode(TheOfNode *node) {
 	case kFuncNode:
 		{
 			FuncNode *func = static_cast<FuncNode *>(node->obj);
+			if (func->name->equalsIgnoreCase("member")) {
+				int fieldId = getTheFieldID(kTheCast, *node->prop, true);
+				if (fieldId >= 0) {
+					COMPILE(node->obj);
+					code1(LC::c_theentitypush);
+					codeInt(kTheCast);
+					codeInt(fieldId);
+					return true;
+				}
+				// fall back to generic object
+			}
 			if (func->args->size() == 1) {
 				if (func->name->equalsIgnoreCase("cast")) {
 					int fieldId = getTheFieldID(kTheCast, *node->prop, true);
