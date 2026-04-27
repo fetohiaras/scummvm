@@ -409,7 +409,22 @@ void LingoArchive::removeCode(ScriptType type, uint16 id) {
 	if (!ctx)
 		return;
 
-	ctx->decRefCount();
+	bool keepLctxContext = false;
+	for (auto &it : lctxContexts) {
+		if (it._value == ctx) {
+			keepLctxContext = true;
+			break;
+		}
+	}
+
+	if (keepLctxContext) {
+		// The bytecode Lscr/Lctx table still owns this context. Keep it alive
+		// until LingoArchive cleanup instead of leaving a dangling lctx pointer.
+		ctx->setOnlyInLctxContexts();
+	} else {
+		ctx->decRefCount();
+	}
+
 	scriptContexts[type].erase(id);
 }
 
