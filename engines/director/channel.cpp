@@ -136,6 +136,15 @@ DirectorPlotData Channel::getPlotData() {
 		pd.applyColor = false;
 	} else {
 		pd.setApplyColor();
+		// Fore/back color substitution (applyColor) only makes sense for 1-bit images,
+		// where every pixel is either the foreground or background color.
+		// For multi-bit bitmaps the pixels carry their own colors spanning the full palette
+		// range; applying the black/white substitution makes all non-endpoint pixels invisible.
+		if (pd.applyColor &&
+			_sprite->_cast && _sprite->_cast->_type == kCastBitmap &&
+			((BitmapCastMember *)_sprite->_cast)->_bitsPerPixel > 1) {
+			pd.applyColor = false;
+		}
 	}
 
 	pd.srfMask = nullptr;
